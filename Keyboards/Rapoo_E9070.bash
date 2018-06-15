@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 #
-# Keyboard: (template)
-#
-# These build scripts are just a convenience for configuring your keyboard (less daunting than CMake)
-# Jacob Alexander 2015-2016
+# Keyboard: Rapoo E9070
 
 
 
@@ -46,7 +43,7 @@ PartialMaps[1]="Rapoo_E9070_Fn"
 # Keyboard Module Configuration
 ScanModule="Rapoo_E9070"
 MacroModule="PartialMap"
-OutputModule="pjrcUSB"
+OutputModule="USB"
 DebugModule="full"
 
 # Microcontroller
@@ -64,11 +61,11 @@ Compiler="gcc"
 # Shouldn't need to touch this section
 
 # Check if the library can be found
-if [ ! -f cmake.bash ]; then
+if [ ! -f "${BASH_SOURCE%/*}/cmake.bash" ]; then
 	echo "ERROR: Cannot find 'cmake.bash'"
 	exit 1
 fi
 
 # Load the library
-source cmake.bash
+source "${BASH_SOURCE%/*}/cmake.bash"
 

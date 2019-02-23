@@ -60,6 +60,7 @@ CLIDict_Entry( reload,    "Signals microcontroller to reflash/reload." );
 CLIDict_Entry( reset,     "Resets the terminal back to initial settings." );
 CLIDict_Entry( restart,   "Sends a software restart, should be similar to powering on the device." );
 CLIDict_Entry( tick,      "Displays the fundamental tick size, and current ticks since last systick." );
+CLIDict_Entry( ram,       "Shows the current and max ram usage" );
 CLIDict_Entry( version,   "Version information about this firmware." );
 
 CLIDict_Def( basicCLIDict, "General Commands" ) = {
@@ -78,6 +79,7 @@ CLIDict_Def( basicCLIDict, "General Commands" ) = {
 	CLIDict_Item( reset ),
 	CLIDict_Item( restart ),
 	CLIDict_Item( tick ),
+	CLIDict_Item( ram ),
 	CLIDict_Item( version ),
 	{ 0, 0, 0 } // Null entry for dictionary end
 };
@@ -792,7 +794,75 @@ void cliFunc_version( char* args )
 	printHex32_op( SIM_UIDMH, 8 );
 	printHex32_op( SIM_UIDML, 8 );
 	printHex32_op( SIM_UIDL, 8 );
+
 #elif defined(_sam_)
+	print( NL );
+	print( " \033[1mCPU Detected:\033[0m  " );
+	print( ChipVersion_lookup() );
+	print( " (Rev " );
+	print( ChipVersion_revision() );
+	print( ")" NL);
+
+	print( " \033[1mCPU Id:\033[0m        " );
+	printHex32( SCB->CPUID );
+	print( NL "  (Implementor:");
+	print( ChipVersion_cpuid_implementor() );
+	print( ":" );
+	printHex32( (SCB->CPUID & SCB_CPUID_IMPLEMENTER_Msk) >> SCB_CPUID_IMPLEMENTER_Pos );
+	print( ")(Variant:" );
+	printHex32( (SCB->CPUID & SCB_CPUID_VARIANT_Msk) >> SCB_CPUID_VARIANT_Pos );
+	print( ")(Arch:" );
+	printHex32( (SCB->CPUID & SCB_CPUID_ARCHITECTURE_Msk) >> SCB_CPUID_ARCHITECTURE_Pos );
+	print( ")(PartNo:" );
+	print( ChipVersion_cpuid_partno() );
+	print( ":" );
+	printHex32( (SCB->CPUID & SCB_CPUID_PARTNO_Msk) >> SCB_CPUID_PARTNO_Pos );
+	print( ")(Revision:" );
+	printHex32( (SCB->CPUID & SCB_CPUID_REVISION_Msk) >> SCB_CPUID_REVISION_Pos );
+	print( ")" NL );
+
+
+	print( " \033[1mChip Id:\033[0m       " );
+	printHex32( CHIPID->CHIPID_CIDR );
+	print( NL "  (Version:");
+	printHex32( CHIPID->CHIPID_CIDR & CHIPID_CIDR_VERSION_Msk );
+	print( ")(Proc:" );
+	print( ChipVersion_proctype[ (CHIPID->CHIPID_CIDR & CHIPID_CIDR_EPROC_Msk) >> CHIPID_CIDR_EPROC_Pos ] );
+	print( ":" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_EPROC_Msk) >> CHIPID_CIDR_EPROC_Pos );
+	print( ")(NVM1:" );
+	printInt16( ChipVersion_nvmsize[ (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPSIZ_Msk) >> CHIPID_CIDR_NVPSIZ_Pos ] );
+	print( "kB:" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPSIZ_Msk) >> CHIPID_CIDR_NVPSIZ_Pos );
+	print( ")(NVM2:" );
+	printInt16( ChipVersion_nvmsize[ (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPSIZ2_Msk) >> CHIPID_CIDR_NVPSIZ2_Pos ] );
+	print( "kB:" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPSIZ2_Msk) >> CHIPID_CIDR_NVPSIZ2_Pos );
+	print( ")(SRAM:" );
+	printInt16( ChipVersion_sramsize[ (CHIPID->CHIPID_CIDR & CHIPID_CIDR_SRAMSIZ_Msk) >> CHIPID_CIDR_SRAMSIZ_Pos ] );
+	print( "kB:" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_SRAMSIZ_Msk) >> CHIPID_CIDR_SRAMSIZ_Pos );
+	print( ")(Arch:" );
+	print( ChipVersion_archid() );
+	print( ":" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_ARCH_Msk) >> CHIPID_CIDR_ARCH_Pos );
+	print( ")(NVMType:" );
+	print( ChipVersion_nvmtype[ (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPTYP_Msk) >> CHIPID_CIDR_NVPTYP_Pos ] );
+	print( ":" );
+	printHex32( (CHIPID->CHIPID_CIDR & CHIPID_CIDR_NVPTYP_Msk) >> CHIPID_CIDR_NVPTYP_Pos );
+	print( ")(ExtId:" );
+	printHex32( CHIPID->CHIPID_CIDR & CHIPID_CIDR_EXT );
+	print( ")" NL );
+
+	print( " \033[1mChip Ext:\033[0m      " );
+	printHex32( CHIPID->CHIPID_EXID & CHIPID_EXID_EXID_Msk );
+	print( NL );
+
+	print( " \033[1mUnique Id:\033[0m     " );
+	printHex32_op( sam_UniqueId[0], 8 );
+	printHex32_op( sam_UniqueId[1], 8 );
+	printHex32_op( sam_UniqueId[2], 8 );
+	printHex32_op( sam_UniqueId[3], 8 );
 #elif defined(_avr_at_)
 #elif defined(_host_)
 #else
@@ -800,3 +870,37 @@ void cliFunc_version( char* args )
 #endif
 }
 
+void cliFunc_ram( char* args )
+{
+#if defined(_kinetis_) || defined(_host_) || (_nrf_)
+	print("Not implemented");
+#else
+extern uint32_t _sstack, _estack;
+
+	uint32_t *p;
+	for (p = &_sstack; p < &_estack; p++) {
+		if (*p != 0xDEADBEEF) break;
+	}
+
+	uint32_t stack_size = &_estack - &_sstack;
+	uint32_t stack_current = &_estack - (uint32_t*)__get_MSP();
+	uint32_t stack_peak = &_estack - p;
+
+	print( NL );
+	print("stack: ");
+	printHex(stack_size);
+	print(" bytes" NL);
+
+	print("  current = ");
+	printHex(stack_current);
+	print(" (");
+	printInt8( 100 * stack_current / stack_size );
+	print("%)" NL);
+
+	print("  peak = ");
+	printHex(stack_peak);
+	print(" (");
+	printInt8( 100 * stack_peak / stack_size );
+	print("%)" NL);
+#endif
+}

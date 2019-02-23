@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2018 by Jacob Alexander
+/* Copyright (C) 2011-2019 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -51,7 +51,6 @@
 #include <output_com.h>
 
 
-
 // ----- Macros -----
 
 // Used to build a bitmap lookup table from a byte addressable array
@@ -67,13 +66,25 @@
 
 
 
+// ----- Enumerations -----
+
+typedef enum {
+	OutputReset_None       = 0, // Do nothing
+	OutputReset_Restart    = 1, // Clear USB stack and restart the firmware
+	OutputReset_Bootloader = 2, // Clear USB stack and jump to bootloader
+} OutputReset;
+
+
+
 // ----- Function Declarations -----
 
 void cliFunc_idle       ( char* args );
 void cliFunc_kbdProtocol( char* args );
 void cliFunc_readLEDs   ( char* args );
 void cliFunc_usbAddr    ( char* args );
+void cliFunc_usbConf    ( char* args );
 void cliFunc_usbInitTime( char* args );
+void cliFunc_usbErrors  ( char* args );
 
 
 
@@ -84,14 +95,18 @@ CLIDict_Entry( idle,        "Show/set the HID Idle time (multiples of 4 ms)." );
 CLIDict_Entry( kbdProtocol, "Keyboard Protocol Mode: 0 - Boot, 1 - OS/NKRO Mode." );
 CLIDict_Entry( readLEDs,    "Read LED byte:" NL "\t\t1 NumLck, 2 CapsLck, 4 ScrlLck, 16 Kana, etc." );
 CLIDict_Entry( usbAddr,     "Shows the negotiated USB unique Id, given to device by host." );
+CLIDict_Entry( usbConf,     "Shows whether USB is configured or not." );
 CLIDict_Entry( usbInitTime, "Displays the time in ms from usb_init() till the last setup call." );
+CLIDict_Entry( usbErrors,   "Displays number of usb errors since startup." );
 
 CLIDict_Def( usbCLIDict, "USB Module Commands" ) = {
 	CLIDict_Item( idle ),
 	CLIDict_Item( kbdProtocol ),
 	CLIDict_Item( readLEDs ),
 	CLIDict_Item( usbAddr ),
+	CLIDict_Item( usbConf ),
 	CLIDict_Item( usbInitTime ),
+	CLIDict_Item( usbErrors ),
 	{ 0, 0, 0 } // Null entry for dictionary end
 };
 
@@ -107,16 +122,8 @@ volatile uint8_t  USBKeys_Sent;
 volatile uint8_t  USBKeys_LEDs;
 volatile uint8_t  USBKeys_LEDs_prev;
 
-// Currently pressed mouse buttons, bitmask, 0 represents no buttons pressed
-volatile uint16_t USBMouse_Buttons;
-
-// Relative mouse axis movement, stores pending movement
-volatile int16_t USBMouse_Relative_x;
-volatile int16_t USBMouse_Relative_y;
-
-// Mouse wheel pending action
-volatile int8_t USBMouse_VertWheel;
-volatile int8_t USBMouse_HoriWheel;
+// USBMouse Buffer
+volatile USBMouse USBMouse_primary; // Primary mouse send buffer
 
 // Protocol setting from the host.
 // 0 - Boot Mode
@@ -124,9 +131,6 @@ volatile int8_t USBMouse_HoriWheel;
 volatile uint8_t  USBKeys_Protocol = USBProtocol_define;
 volatile uint8_t  USBKeys_Protocol_New = USBProtocol_define;
 volatile uint8_t  USBKeys_Protocol_Change; // New value to set to USBKeys_Protocol if _Change is set
-
-// Indicate if USB should send update
-USBMouseChangeState USBMouse_Changed;
 
 // the idle configuration, how often we send the report to the
 // host (ms * 4) even when it hasn't changed
@@ -144,6 +148,14 @@ volatile uint16_t USBInit_Ticks;
 
 // USB Address - Set by host, unique to the bus
 volatile uint8_t USBDev_Address;
+
+// USB Errors
+volatile uint32_t USBStatus_FrameErrors;
+
+// Scheduled USB resets, used to clear USB packets before bringing down the USB stack
+// This is useful for OSs like Windows where then OS doesn't clear the current state
+// after the keyboard is disconnected (i.e. Ctrl keeps being held until Ctrl is pressed again).
+volatile static uint8_t Output_reset_schedule;
 
 // Latency measurement resource
 static uint8_t outputPeriodicLatencyResource;
@@ -575,6 +587,7 @@ void Output_usbCodeSend_capability( TriggerMacro *trigger, uint8_t state, uint8_
 
 		break;
 	}
+
 #endif
 }
 
@@ -611,23 +624,23 @@ void Output_usbMouse_capability( TriggerMacro *trigger, uint8_t state, uint8_t s
 		// Press/Hold
 		if ( mouse_button )
 		{
-			USBMouse_Buttons |= (1 << mouse_button_shift);
+			USBMouse_primary.buttons |= (1 << mouse_button_shift);
 		}
 
 		if ( mouse_x )
 		{
-			USBMouse_Relative_x = mouse_x;
+			USBMouse_primary.relative_x = mouse_x;
 		}
 		if ( mouse_y )
 		{
-			USBMouse_Relative_y = mouse_y;
+			USBMouse_primary.relative_y = mouse_y;
 		}
 		break;
 	case CapabilityState_Last:
 		// Release
 		if ( mouse_button )
 		{
-			USBMouse_Buttons &= ~(1 << mouse_button_shift);
+			USBMouse_primary.buttons &= ~(1 << mouse_button_shift);
 		}
 		break;
 	case CapabilityState_Debug:
@@ -641,12 +654,12 @@ void Output_usbMouse_capability( TriggerMacro *trigger, uint8_t state, uint8_t s
 	// Trigger updates
 	if ( mouse_button )
 	{
-		USBMouse_Changed |= USBMouseChangeState_Buttons;
+		USBMouse_primary.changed |= USBMouseChangeState_Buttons;
 	}
 
 	if ( mouse_x || mouse_y )
 	{
-		USBMouse_Changed |= USBMouseChangeState_Relative;
+		USBMouse_primary.changed |= USBMouseChangeState_Relative;
 	}
 }
 
@@ -670,14 +683,14 @@ void Output_usbMouseWheel_capability( TriggerMacro *trigger, uint8_t state, uint
 		// Press/Hold
 		if ( wheel_vert )
 		{
-			USBMouse_VertWheel = wheel_vert;
-			USBMouse_Changed |= USBMouseChangeState_WheelVert;
+			USBMouse_primary.vertwheel = wheel_vert;
+			USBMouse_primary.changed |= USBMouseChangeState_WheelVert;
 		}
 
 		if ( wheel_hori )
 		{
-			USBMouse_HoriWheel = wheel_hori;
-			USBMouse_Changed |= USBMouseChangeState_WheelHori;
+			USBMouse_primary.horiwheel = wheel_hori;
+			USBMouse_primary.changed |= USBMouseChangeState_WheelHori;
 		}
 		break;
 	case CapabilityState_Debug:
@@ -707,12 +720,28 @@ void USB_flushBuffers()
 
 	// Reset USBKeys_Keys size
 	USBKeys_Sent = 0;
+
+	// Clear mouse state
+	USBMouse_primary.buttons = 0;
+	USBMouse_primary.relative_x = 0;
+	USBMouse_primary.relative_y = 0;
+	USBMouse_primary.vertwheel = 0;
+	USBMouse_primary.horiwheel = 0;
+	USBMouse_primary.changed = 0;
+
+	// Make sure everything actually flushes
+	USBKeys_primary.changed = 1;
+	USBKeys_idle.changed = 1;
+	USBMouse_primary.changed = 1;
 }
 
 
 // USB Module Setup
 inline void USB_setup()
 {
+	// Reset frame error counter
+	USBStatus_FrameErrors = 0;
+
 	// Initialize the USB
 	// If a USB connection does not exist, just ignore it
 	// All usb related functions will non-fatally fail if called
@@ -729,25 +758,25 @@ inline void USB_setup()
 	USBKeys_LEDs_prev = 0;
 	USBKeys_LEDs = 0;
 
-	// Clear mouse state
-	USBMouse_Buttons = 0;
-	USBMouse_Relative_x = 0;
-	USBMouse_Relative_y = 0;
-	USBMouse_VertWheel = 0;
-	USBMouse_HoriWheel = 0;
-	USBMouse_Changed = 0;
-
 	// Clear USB address
 	USBDev_Address = 0;
+
+	// Clear USB reset state
+	Output_reset_schedule = OutputReset_None;
 
 	// Flush key buffers
 	USB_flushBuffers();
 
 	// Check if we need to disable secure bootloader mode
 	// This is done by setting both 32 bit Kiibohd specific VBAT secure register regions
-#if ( defined(_kii_v1_) || defined(_kii_v2_) ) && SecureBootloader_define == 0
+#if SecureBootloader_define == 0
+#if ( defined(_kii_v1_) || defined(_kii_v2_) )
 	VBAT_SECURE1 = 0;
 	VBAT_SECURE2 = 0;
+#elif defined(_kii_v3_)
+	GPBR_SECURE1 = 0;
+	GPBR_SECURE2 = 0;
+#endif
 #endif
 
 #if enableRawIO_define == 1
@@ -790,7 +819,7 @@ inline void USB_poll()
 void USB_indicator_update()
 {
 	// Check each bit of the indicator byte
-	for ( uint8_t bit = 0; bit < LED_KANA; bit++ )
+	for ( uint8_t bit = 0; bit < LED_KANA_5; bit++ )
 	{
 		uint8_t id = bit + 1; // Conversion to USB HID Indicator code
 
@@ -803,7 +832,7 @@ void USB_indicator_update()
 			continue;
 		}
 		// Detect if on
-		else if ( cur == prev )
+		else if ( cur && cur == prev )
 		{
 			// On
 			Macro_ledState( id, ScheduleType_On );
@@ -811,15 +840,50 @@ void USB_indicator_update()
 		// Detect if press
 		else if ( cur )
 		{
+			// TODO (HaaTa): Temporary Lock led control
+#if Scan_KiraKeyboard_define == 1 && !defined(_host_)
+			switch ( id )
+			{
+			case LED_NUM_LOCK_1:
+				Scan_numlock(cur);
+				break;
+			case LED_CAPS_LOCK_2:
+				Scan_capslock(cur);
+				break;
+			case LED_SCROLL_LOCK_3:
+				Scan_scrolllock(cur);
+				break;
+			default:
+				break;
+			}
+#endif
 			// Activate
 			Macro_ledState( id, ScheduleType_A );
 		}
 		// Detect if release
 		else if ( prev )
 		{
+			// TODO (HaaTa): Temporary Lock led control
+#if Scan_KiraKeyboard_define == 1 && !defined(_host_)
+			switch ( id )
+			{
+			case LED_NUM_LOCK_1:
+				Scan_numlock(cur);
+				break;
+			case LED_CAPS_LOCK_2:
+				Scan_capslock(cur);
+				break;
+			case LED_SCROLL_LOCK_3:
+				Scan_scrolllock(cur);
+				break;
+			default:
+				break;
+			}
+#endif
 			// Deactivate
 			Macro_ledState( id, ScheduleType_D );
 		}
+
 	}
 
 	// Update for next state comparison
@@ -842,10 +906,21 @@ inline void USB_periodic()
 	// Start latency measurement
 	Latency_start_time( outputPeriodicLatencyResource );
 
+	// Check to see if we need to reset the USB buffers
+	switch ( Output_reset_schedule )
+	{
+	case OutputReset_Restart:
+	case OutputReset_Bootloader:
+		USB_flushBuffers();
+		break;
+	}
+
 #if enableMouse_define == 1
 	// Process mouse actions
-	while ( USBMouse_Changed )
+	while ( USBMouse_primary.changed )
+	{
 		usb_mouse_send();
+	}
 #endif
 
 #if enableKeyboard_define == 1
@@ -892,6 +967,26 @@ inline void USB_periodic()
 	// Monitor USB Suspend/Sleep State
 	USB_suspend_status_update();
 #endif
+
+	// Check if a reset needs to be scheduled
+	switch ( Output_reset_schedule )
+	{
+	case OutputReset_Restart:
+		// Clear schedule
+		Output_reset_schedule = OutputReset_None;
+
+		// Restart firmware
+		usb_device_software_reset();
+		break;
+
+	case OutputReset_Bootloader:
+		// Clear schedule
+		Output_reset_schedule = OutputReset_None;
+
+		// Jump to bootloader
+		usb_device_reload();
+		break;
+	}
 
 	// End latency measurement
 	Latency_end_time( outputPeriodicLatencyResource );
@@ -958,14 +1053,14 @@ void USB_NKRODebug( USBKeys *buffer )
 // Sets the device into firmware reload mode
 inline void USB_firmwareReload()
 {
-	usb_device_reload();
+	Output_reset_schedule = OutputReset_Bootloader;
 }
 
 
 // Soft Chip Reset
 inline void USB_softReset()
 {
-	usb_device_software_reset();
+	Output_reset_schedule = OutputReset_Restart;
 }
 
 
@@ -1135,6 +1230,16 @@ void cliFunc_usbAddr( char* args )
 }
 
 
+void cliFunc_usbConf( char* args )
+{
+	print(NL);
+	info_msg("USB Configured: ");
+#if !defined(_host_)
+	printInt8( usb_configured() );
+#endif
+}
+
+
 void cliFunc_usbInitTime( char* args )
 {
 	// Calculate overall USB initialization time
@@ -1145,5 +1250,13 @@ void cliFunc_usbInitTime( char* args )
 	print(" ms - ");
 	printInt16( USBInit_Ticks );
 	print(" ticks");
+}
+
+
+void cliFunc_usbErrors( char* args )
+{
+	print(NL);
+	info_msg("USB Frame Errors: ");
+	printInt32( USBStatus_FrameErrors );
 }
 

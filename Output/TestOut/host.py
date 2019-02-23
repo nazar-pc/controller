@@ -2,19 +2,19 @@
 Host-Side Python Commands for TestOut Output Module
 '''
 
-# Copyright (C) 2016-2018 by Jacob Alexander
+# Copyright (C) 2016-2019 by Jacob Alexander
 #
 # This file is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Lesser General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
 # This file is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Lesser General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
+# You should have received a copy of the GNU Lesser General Public License
 # along with this file.  If not, see <http://www.gnu.org/licenses/>.
 
 ### Imports ###
@@ -24,7 +24,7 @@ import copy
 import os
 import sys
 
-from ctypes import POINTER, cast, c_char_p, c_uint8, c_uint16, Structure
+from ctypes import POINTER, cast, c_char_p, c_int8, c_int16, c_uint8, c_uint16, Structure
 
 import kiilogger
 
@@ -121,6 +121,33 @@ class USBKeys( Structure ):
             self.keys,
             self.sys_ctrl,
             self.cons_ctrl,
+            self.changed,
+        )
+        return val
+
+
+class USBMouse( Structure ):
+    '''
+    USBMouse struct
+    See Output/USB/output_usb.h
+    '''
+
+    _fields_ = [
+        ( 'buttons',    c_uint16 ),
+        ( 'relative_x', c_int16 ),
+        ( 'relative_y', c_int16 ),
+        ( 'vertwheel',  c_int8 ),
+        ( 'horiwheel',  c_int8 ),
+        ( 'changed',    c_uint8 ),
+    ]
+
+    def __repr__( self ):
+        val = "(buttons={}, relative_x={}, relative_y={}, vertwheel={}, horiwheel={}, changed={})".format(
+            self.buttons,
+            self.relative_x,
+            self.relative_y,
+            self.vertwheel,
+            self.horiwheel,
             self.changed,
         )
         return val
@@ -224,6 +251,15 @@ class Commands:
         '''
         cast(control.kiibohd.Output_DebugMode, POINTER(c_uint8))[0] = debug
 
+    def setKbdProtocol(self, value):
+        '''
+        Set NKRO or 6KRO mode
+        0 - NKRO Mode
+        1 - 6KRO Mode
+        '''
+        cast(control.kiibohd.USBKeys_Protocol_New, POINTER(c_uint8))[0] = value
+        cast(control.kiibohd.USBKeys_Protocol_Change, POINTER(c_uint8))[0] = 1
+
     def setRawIOLoopback( self, enable=True ):
         '''
         Enable/Disable RawIO loopback
@@ -297,9 +333,16 @@ class Callbacks:
 
     def mouse_send( self, args ):
         '''
-        TODO
+        Callback received when Host-side KLL is ready to send USB mouse commands
+
+        TODO - Not fully implemented
         '''
+        usb_mouse = cast( control.kiibohd.USBMouse_primary, POINTER( USBMouse ) )[0]
+
         logger.warning("mouse_send not implemented")
+
+        # Indicate we are done with the buffer
+        usb_mouse.changed = 0
 
     def rawio_available( self, args ):
         '''

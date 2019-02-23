@@ -22,6 +22,7 @@
 
 // ----- Includes -----
 
+#include <kll_defs.h>
 #include "mcu_compat.h"
 
 #if defined(_kinetis_)
@@ -38,6 +39,7 @@
 
 #endif
 
+#include "sysview.h"
 
 
 // ----- Variables -----
@@ -72,7 +74,7 @@ void Periodic_init( uint32_t cycles )
 	NVIC_ENABLE_IRQ( IRQ_PIT_CH0 );
 
 	// Set PIT0 interrupt to a low priority
-	NVIC_SET_PRIORITY( IRQ_PIT_CH0, 200 );
+	NVIC_SET_PRIORITY( IRQ_PIT_CH0, Periodic_Priority_define );
 }
 
 void Periodic_enable()
@@ -114,8 +116,8 @@ void Periodic_init( uint32_t cycles )
 	// Enable clock for timer
 	PMC->PMC_PCER0 |= (1 << ID_TC0);
 
-	// Setup Timer Counter to MCK/2 (highest frequency)
-	TC0->TC_CHANNEL[0].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK1 | TC_CMR_CPCTRG;
+	// Setup Timer Counter to MCK/32
+	TC0->TC_CHANNEL[0].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK3 | TC_CMR_CPCTRG;
 
 	// Timer Count-down value
 	// Number of cycles to count from CPU clock before calling interrupt
@@ -129,7 +131,7 @@ void Periodic_init( uint32_t cycles )
 	NVIC_EnableIRQ( TC0_IRQn );
 
 	// Set TC0 interrupt to a low priority
-	NVIC_SetPriority( TC0_IRQn, 200 );
+	NVIC_SetPriority( TC0_IRQn, Periodic_Priority_define );
 }
 
 void Periodic_function( void *func )
@@ -157,10 +159,13 @@ uint32_t Periodic_cycles()
 
 void TC0_Handler()
 {
-	if ( TC0->TC_CHANNEL[0].TC_SR & TC_SR_CPCS )
+	SEGGER_SYSVIEW_RecordEnterISR();
+	uint32_t status = TC0->TC_CHANNEL[0].TC_SR;
+	if ( status & TC_SR_CPCS )
 	{
 		(*periodic_func)();
 	}
+	SEGGER_SYSVIEW_RecordExitISRToScheduler();
 }
 
 

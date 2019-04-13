@@ -235,11 +235,9 @@ void init_usb_bootloader( int config )
 {
 	dfu_init( setup_read, setup_write, finish_write, &dfu_ctx );
 
-	// Make sure SysTick counter is disabled (dfu has issues otherwise)
 #if defined(_kinetis_)
+	// Make sure SysTick counter is disabled (dfu has issues otherwise)
 	SYST_CSR = 0;
-#elif defined(_sam_)
-	SysTick->CTRL = ~SysTick_CTRL_ENABLE_Msk;
 #endif
 
 	// Clear verified status
@@ -270,7 +268,7 @@ void main()
 
 	// Prepared debug output (when supported)
 	uart_serial_setup();
-	printNL( NL "==> Bootloader DFU-Mode" );
+	printNL( NL "==> Bootloader" );
 
 	// Early setup
 	Chip_reset();
@@ -281,16 +279,14 @@ void main()
 	// pointer and check for valid app code.  This is no fool
 	// proof method, but it should help for the first flash.
 	//
-	// Purposefully disabling the watchdog *after* the reset check this way
-	// if the chip goes into an odd state we'll reset to the bootloader (invalid firmware image)
-	// RCM_SRS0 & 0x20
+	// Rather than checking the watchdog signal, look for the sys_reset_to_loader_magic
+	// sequence. If not set after a watchdog, try to boot the firmware again.
+	// Otherwise if set, that means the firmware didn't fully initialize and go back to the bootloader
 	//
 	// Also checking for ARM lock-up signal (invalid firmware image)
 	// RCM_SRS1 & 0x02
 	if (    // PIN  (External Reset Pin/Switch)
 		RCM_SRS0 & 0x40
-		// WDOG (Watchdog timeout)
-		|| RCM_SRS0 & 0x20
 		// LOCKUP (ARM Core LOCKUP event)
 		|| RCM_SRS1 & 0x02
 		// Blank flash check
@@ -299,18 +295,15 @@ void main()
 		|| memcmp( (uint8_t*)&VBAT, sys_reset_to_loader_magic, sizeof(sys_reset_to_loader_magic) ) == 0
 	)
 	{
+		printNL("-> DFU-Mode");
 		// Bootloader mode
 		memset( (uint8_t*)&VBAT, 0, sizeof(sys_reset_to_loader_magic) );
 	}
 	else
 	{
-		// Enable Watchdog before jumping
-		// XXX (HaaTa) This watchdog cannot trigger an IRQ, as we're relocating the vector table
-		WDOG_UNLOCK = WDOG_UNLOCK_SEQ1;
-		WDOG_UNLOCK = WDOG_UNLOCK_SEQ2;
-		WDOG_TOVALH = 0;
-		WDOG_TOVALL = 1000;
-		WDOG_STCTRLH |= WDOG_STCTRLH_WDOGEN;
+		// Cleared by valid firmwre
+		for ( int pos = 0; pos < sizeof(sys_reset_to_loader_magic); pos++ )
+			(&VBAT)[ pos ] = sys_reset_to_loader_magic[ pos ];
 
 		// Firmware mode
 		print( NL "==> Booting Firmware..." );
@@ -327,6 +320,7 @@ void main()
 		|| memcmp( (uint8_t*)GPBR, sys_reset_to_loader_magic, sizeof(sys_reset_to_loader_magic) ) == 0
 	)
 	{
+		printNL("-> DFU-Mode");
 		// Bootloader mode
 		for ( int pos = 0; pos <= sizeof(sys_reset_to_loader_magic)/sizeof(GPBR->SYS_GPBR[0]); pos++ )
 			GPBR->SYS_GPBR[ pos ] = 0x00000000;
@@ -430,6 +424,13 @@ void main()
 	for (;;)
 	{
 #if defined(_kinetis_)
+		// Stroke watchdog
+		if ( WDOG_TMROUTL > 2 )
+		{
+			WDOG_REFRESH = WDOG_REFRESH_SEQ1;
+			WDOG_REFRESH = WDOG_REFRESH_SEQ2;
+		}
+
 		dfu_usb_poll();
 #endif
 

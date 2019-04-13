@@ -22,6 +22,8 @@
 // Project Includes
 #include <Lib/storage.h>
 #include <cli.h>
+#include <layer.h>
+#include <trigger.h>
 #include <kll_defs.h>
 #include <latency.h>
 #include <led.h>
@@ -526,14 +528,26 @@ void Pixel_FadeLayerHighlight_capability( TriggerMacro *trigger, uint8_t state, 
 {
 	CapabilityState cstate = KLL_CapabilityState( state, stateType );
 
+	// Get argument
+	uint16_t layer = *(uint16_t*)(&args[0]);
+
 	switch ( cstate )
 	{
 	case CapabilityState_Initial:
+		// Refresh the fade profiles
+		Pixel_SecondaryProcessing_profile_init();
 		// Scan the layer for keys
 		break;
 	case CapabilityState_Last:
 		// Refresh the fade profiles
 		Pixel_SecondaryProcessing_profile_init();
+
+		// If any layers are still active, re-run using top layer
+		layer = Layer_topActive();
+		if ( layer > 0 )
+		{
+			break;
+		}
 		return;
 	case CapabilityState_Debug:
 		// Display capability name
@@ -564,9 +578,6 @@ void Pixel_FadeLayerHighlight_capability( TriggerMacro *trigger, uint8_t state, 
 	);
 #endif
 
-	// Get argument
-	uint16_t layer = *(uint16_t*)(&args[0]);
-
 	// Ignore if an invalid layer
 	if ( layer >= LayerNum )
 	{
@@ -576,19 +587,24 @@ void Pixel_FadeLayerHighlight_capability( TriggerMacro *trigger, uint8_t state, 
 	// Lookup layer
 	const Layer *layer_map = &LayerIndex[layer];
 
-	// Lookup list of keys in layer
-	for ( uint8_t key = layer_map->first; key <= layer_map->last; key++ )
-	{
-		uint8_t index = key - layer_map->first;
+#if KLL_LED_FadeActiveLayerInvert_define == 1
+	// Default layer
+	const Layer *default_map = &LayerIndex[0];
 
-		// Skip 0 index, as scancodes start at 1
-		if ( index == 0 )
+	// Add keys not in layer
+	uint8_t key = 1; // Scan Codes start at 1
+	for ( ; key <= layer_map->first; key++ )
+	{
+		// If we've exceeded the pixel lookup, ignore
+		if ( key > MaxPixelToScanCode_KLL )
 		{
-			continue;
+			return;
 		}
 
+		uint8_t index = key - default_map->first;
+
 		// If the first entry in trigger list is a 0, ignore (otherwise, key is in layer)
-		if ( layer_map->triggerMap[index][0] == 0 )
+		if ( !Trigger_DetermineScanCodeOnTrigger( default_map, index ) )
 		{
 			continue;
 		}
@@ -605,6 +621,98 @@ void Pixel_FadeLayerHighlight_capability( TriggerMacro *trigger, uint8_t state, 
 		// Set pixel to group #4
 		Pixel_pixel_fade_profile[pixel - 1] = 4;
 	}
+
+	// Iterate over every key in layer, skipping active keys
+	for ( ; key <= layer_map->last; key++ )
+	{
+		// If we've exceeded the pixel lookup, ignore
+		if ( key > MaxPixelToScanCode_KLL )
+		{
+			return;
+		}
+
+		uint8_t index = key - layer_map->first;
+
+		// If the first entry in trigger list is a 0, set as this key is not in the layer
+		// Ignore otherwise
+		if ( Trigger_DetermineScanCodeOnTrigger( layer_map, index ) )
+		{
+			continue;
+		}
+
+		// If the first entry in trigger list is a 0, ignore (otherwise, key is in layer)
+		if ( !Trigger_DetermineScanCodeOnTrigger( default_map, index ) )
+		{
+			continue;
+		}
+
+		// Lookup pixel associated with scancode (remember -1 as all pixels and scancodes start at 1, not 0)
+		uint16_t pixel = Pixel_ScanCodeToPixel[key - 1];
+
+		// If pixel is 0, ignore
+		if ( pixel == 0 )
+		{
+			continue;
+		}
+
+		// Set pixel to group #4
+		Pixel_pixel_fade_profile[pixel - 1] = 4;
+	}
+
+	// Add keys not in layer
+	for ( ; key <= default_map->last; key++ )
+	{
+		// If we've exceeded the pixel lookup, ignore
+		if ( key > MaxPixelToScanCode_KLL )
+		{
+			return;
+		}
+
+		uint8_t index = key - default_map->first;
+
+		// If the first entry in trigger list is a 0, ignore (otherwise, key is in layer)
+		if ( !Trigger_DetermineScanCodeOnTrigger( default_map, index ) )
+		{
+			continue;
+		}
+
+		// Lookup pixel associated with scancode (remember -1 as all pixels and scancodes start at 1, not 0)
+		uint16_t pixel = Pixel_ScanCodeToPixel[key - 1];
+
+		// If pixel is 0, ignore
+		if ( pixel == 0 )
+		{
+			continue;
+		}
+
+		// Set pixel to group #4
+		Pixel_pixel_fade_profile[pixel - 1] = 4;
+	}
+#else
+	// Lookup list of keys in layer
+	for ( uint8_t key = layer_map->first; key <= layer_map->last; key++ )
+	{
+		uint8_t index = key - layer_map->first;
+
+		// If the first entry in trigger list is a 0, ignore (otherwise, key is in layer)
+		if ( !Trigger_DetermineScanCodeOnTrigger( layer_map, index ) )
+		{
+			continue;
+		}
+
+		// Lookup pixel associated with scancode (remember -1 as all pixels and scancodes start at 1, not 0)
+		uint16_t pixel = Pixel_ScanCodeToPixel[key - 1];
+
+		// If pixel is 0, ignore
+		if ( pixel == 0 )
+		{
+			continue;
+		}
+
+		// Set pixel to group #4
+		Pixel_pixel_fade_profile[pixel - 1] = 4;
+	}
+#endif
 }
 
 void Pixel_FadeControl_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
@@ -636,7 +744,7 @@ void Pixel_FadeControl_capability( TriggerMacro *trigger, uint8_t state, uint8_t
 	}
 
 	// Process command
-	uint8_t tmp;
+	uint16_t tmp;
 	switch ( command )
 	{
 	case PixelFadeControl_Reset:
@@ -673,7 +781,7 @@ void Pixel_FadeControl_capability( TriggerMacro *trigger, uint8_t state, uint8_t
 	case PixelFadeControl_Brightness_Increment:
 		// Increment with no rollover
 		tmp = Pixel_pixel_fade_profile_entries[profile].brightness;
-		if ( tmp + arg < tmp )
+		if ( tmp + arg > 0xFF )
 		{
 			Pixel_pixel_fade_profile_entries[profile].brightness = 0xFF;
 			break;
@@ -684,7 +792,7 @@ void Pixel_FadeControl_capability( TriggerMacro *trigger, uint8_t state, uint8_t
 	case PixelFadeControl_Brightness_Decrement:
 		// Decrement with no rollover
 		tmp = Pixel_pixel_fade_profile_entries[profile].brightness;
-		if ( tmp - arg > tmp )
+		if ( tmp - arg < 0x00 )
 		{
 			Pixel_pixel_fade_profile_entries[profile].brightness = 0x00;
 			break;
@@ -822,6 +930,7 @@ uint8_t Pixel_addAnimation( AnimationStackElement *element, CapabilityState csta
 			found->state = element->state;
 			return 0;
 		}
+		break;
 
 	// Replace on press and release
 	// Press starts the animation
@@ -834,7 +943,7 @@ uint8_t Pixel_addAnimation( AnimationStackElement *element, CapabilityState csta
 		// Press
 		case CapabilityState_Initial:
 			// If found, modify stack element
-			if ( found )
+			if ( found && found->trigger == element->trigger )
 			{
 				found->pos = element->pos;
 				found->subpos = element->subpos;
@@ -852,7 +961,7 @@ uint8_t Pixel_addAnimation( AnimationStackElement *element, CapabilityState csta
 		// Release
 		case CapabilityState_Last:
 			// Only need to do something if the animation was found (which is stop)
-			if ( found )
+			if ( found && found->trigger == element->trigger )
 			{
 				found->state = AnimationPlayState_Stop;
 			}
@@ -861,6 +970,7 @@ uint8_t Pixel_addAnimation( AnimationStackElement *element, CapabilityState csta
 		default:
 			break;
 		}
+		break;
 
 	// Clear all current animations from stack before adding new animation
 	case AnimationReplaceType_Clear:
@@ -898,8 +1008,8 @@ uint8_t Pixel_addAnimation( AnimationStackElement *element, CapabilityState csta
 
 			// Ignore paused animations (single will be paused on the next frame)
 			if (
-				Pixel_AnimationStack.stack[pos]->state == AnimationPlayState_Pause ||
-				Pixel_AnimationStack.stack[pos]->state == AnimationPlayState_Single
+				( Pixel_AnimationStack.stack[pos]->state & 0x7F ) == AnimationPlayState_Pause ||
+				( Pixel_AnimationStack.stack[pos]->state & 0x7F ) == AnimationPlayState_Single
 			)
 			{
 				continue;
@@ -1947,7 +2057,7 @@ uint8_t Pixel_animationProcess( AnimationStackElement *elem )
 	}
 
 	// Check the play state
-	switch ( elem->state )
+	switch ( elem->state & 0x7F )
 	{
 	// Pause animation (paused animations will take up animation stack memory)
 	case AnimationPlayState_Pause:
@@ -2424,7 +2534,7 @@ void Pixel_initializeStartAnimations()
 			AnimationStackElement element = Pixel_AnimationSettings[ index ];
 
 			// Only update state if not already defined
-			if ( element.state == AnimationPlayState_Pause )
+			if ( ( element.state & 0x7F ) == AnimationPlayState_Pause )
 			{
 				element.state = AnimationPlayState_Start;
 			}
@@ -2477,6 +2587,7 @@ inline void Pixel_process()
 		Pixel_clearPixels();
 		goto pixel_process_done;
 	case AnimationControl_Clear: // Clears the display, animations continue
+		Pixel_animationControl = AnimationControl_Forward;
 		Pixel_FrameState = FrameState_Update;
 		Pixel_clearPixels();
 		break;
@@ -2823,7 +2934,7 @@ inline void Pixel_setup()
 	for ( uint32_t index = 0; index < Pixel_AnimationSettingsNum_KLL; index++ )
 	{
 		// Check if a starting animation
-		if ( Pixel_AnimationSettings[ index ].state == AnimationPlayState_Start )
+		if ( Pixel_AnimationSettings[ index ].state & AnimationPlayState_AutoStart )
 		{
 			// Default animations are noted by the TriggerMacro *trigger pointer being set to 1
 			if ( (uintptr_t)(Pixel_AnimationSettings[ index ].trigger) == 1 )
@@ -2832,10 +2943,9 @@ inline void Pixel_setup()
 #if Storage_Enable_define == 1
 				defaults.animations[add_animations].index = index;
 				defaults.animations[add_animations].pos = Pixel_AnimationSettings[index].pos;
-#else
+#endif
 				settings.animations[add_animations].index = index;
 				settings.animations[add_animations].pos = Pixel_AnimationSettings[index].pos;
-#endif
 				add_animations++;
 			}
 		}
@@ -2847,10 +2957,9 @@ inline void Pixel_setup()
 #if Storage_Enable_define == 1
 		defaults.animations[animation].index = 255;
 		defaults.animations[animation].pos = 0;
-#else
+#endif
 		settings.animations[animation].index = 255;
 		settings.animations[animation].pos = 0;
-#endif
 	}
 
 	// Setup fade defaults
@@ -2861,16 +2970,14 @@ inline void Pixel_setup()
 #if Storage_Enable_define == 1
 			defaults.fade_periods[profile][config] =
 				Pixel_LED_FadePeriods[Pixel_LED_FadePeriod_Defaults[profile][config]];
-#else
+#endif
 			settings.fade_periods[profile][config] =
 				Pixel_LED_FadePeriods[Pixel_LED_FadePeriod_Defaults[profile][config]];
-#endif
 		}
 #if Storage_Enable_define == 1
 		defaults.fade_brightness[profile] = Pixel_LED_FadeBrightness[profile];
-#else
-		settings.fade_brightness[profile] = Pixel_LED_FadeBrightness[profile];
 #endif
+		settings.fade_brightness[profile] = Pixel_LED_FadeBrightness[profile];
 	}
 
 	// Register storage module
@@ -3437,7 +3544,7 @@ void Pixel_saveConfig() {
 			settings.animations[pos].index = elem->index;
 
 			// Save position, only if paused
-			if ( elem->state == AnimationPlayState_Pause )
+			if ( ( elem->state & 0x7F ) == AnimationPlayState_Pause )
 			{
 				settings.animations[pos].pos = elem->pos - 1;
 			}

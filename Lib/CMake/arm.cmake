@@ -1,6 +1,6 @@
 ###| CMAKE Kiibohd Controller |###
 #
-# Jacob Alexander 2011-2018
+# Jacob Alexander 2011-2019
 # Due to this file's usefulness:
 #
 # Released into the Public Domain
@@ -106,6 +106,7 @@ set( COMPILER_SRCS
 	Lib/periodic.c
 	Lib/storage.c
 	Lib/time.c
+	Lib/utf8.c
 )
 if ( "${CPU}" MATCHES "cortex-m4" )
 	list( APPEND COMPILER_SRCS
@@ -281,4 +282,3 @@ if ( "${COMPILER}" MATCHES "clang" )
 else ()
 	set( LSS_FLAGS -h -S -z )
 endif ()
-

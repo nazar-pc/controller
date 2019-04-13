@@ -2,7 +2,6 @@
 Name = PixelMapCapabilities;
 Version = 0.7;
 Author = "HaaTa (Jacob Alexander) 2015-2019";
-KLL = 0.5;
 
 # Modified Date
 Date = 2019-02-18;
@@ -107,6 +106,11 @@ KLL_LED_FadeBrightness[0] = 255;
 KLL_LED_FadeBrightness[1] = 255;
 KLL_LED_FadeBrightness[2] = 255;
 KLL_LED_FadeBrightness[3] = 255;
+
+# Invert Active Layer Fade Selection
+# Chooses the keys not in the active layer to be fade group
+KLL_LED_FadeActiveLayerInvert => KLL_LED_FadeActiveLayerInvert_define;
+KLL_LED_FadeActiveLayerInvert = 0;
 
 # Fade Period
 # .start and .end must be between 0 and 15

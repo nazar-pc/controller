@@ -1,16 +1,16 @@
 /* Copyright (C) 2014-2018 by Jacob Alexander
  *
  * This file is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
+ * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This file is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this file.  If not, see <http://www.gnu.org/licenses/>.
  */
 
@@ -529,6 +529,16 @@ uint8_t Macro_pressReleaseAdd( void *trigger_ptr )
 	case TriggerType_Analog3:
 	case TriggerType_Analog4:
 	case TriggerType_Rotation1:
+		break;
+
+	case TriggerType_Animation1:
+	case TriggerType_Animation2:
+	case TriggerType_Animation3:
+	case TriggerType_Animation4:
+	case TriggerType_Sleep1:
+	case TriggerType_Resume1:
+	case TriggerType_Active1:
+	case TriggerType_Inactive1:
 		break;
 
 	// Invalid TriggerGuide type for Interconnect
@@ -1058,13 +1068,21 @@ void Macro_periodic()
 				break;
 
 			case TriggerType_Rotation1:
+			case TriggerType_Animation1:
+			case TriggerType_Animation2:
+			case TriggerType_Animation3:
+			case TriggerType_Animation4:
+			case TriggerType_Sleep1:
+			case TriggerType_Resume1:
+			case TriggerType_Active1:
+			case TriggerType_Inactive1:
 				// Do not re-add
 				break;
 
 			// Not implemented
 			default:
 				erro_msg("Interconnect Trigger Event Type - Not Implemented ");
-				printInt8( macroInterconnectCache[ c ].type );
+				printHex( macroInterconnectCache[ c ].type );
 				print( NL );
 				break;
 			}

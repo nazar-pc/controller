@@ -37,6 +37,7 @@
 #include <debug.h>
 #else
 #include <print.h>
+#include <led.h>
 #endif
 
 // Local Includes
@@ -936,11 +937,24 @@ void *memcpy( void *dst, const void *src, unsigned int len )
 __attribute__ ((section(".startup")))
 void ResetHandler()
 {
-	// Disable Watchdog
-	while ( WDOG_TMROUTL < 2 ); // Must wait for WDOG timer if already running, before jumping
+	// Setup Watchdog
+	while ( WDOG_TMROUTL < 2 ); // Must wait for WDOG timer if already running (otherwise settings will fail)
 	WDOG_UNLOCK = WDOG_UNLOCK_SEQ1;
 	WDOG_UNLOCK = WDOG_UNLOCK_SEQ2;
-	WDOG_STCTRLH &= ~WDOG_STCTRLH_WDOGEN;
+	WDOG_STCTRLH = WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_ALLOWUPDATE;
+
+#if defined(_bootloader_)
+	// Setup watchdog for 1000ms timeout
+	WDOG_TOVALH = 0;
+	WDOG_TOVALL = 1000;
+#endif
+
+	// Stroke watchdog
+	if ( WDOG_STCTRLH_WDOGEN && WDOG_TMROUTL > 2 )
+	{
+		WDOG_REFRESH = WDOG_REFRESH_SEQ1;
+		WDOG_REFRESH = WDOG_REFRESH_SEQ2;
+	}
 
 	uint32_t *src = (uint32_t*)&_etext;
 	uint32_t *dest = (uint32_t*)&_sdata;
@@ -1109,6 +1123,13 @@ void ResetHandler()
 
 	// Intialize entropy for random numbers
 	rand_initialize();
+
+#if !defined(_bootloader_)
+	init_errorLED();
+	errorLED(0);
+
+	memset( (uint8_t*)&VBAT, 0, sizeof(sys_reset_to_loader_magic) );
+#endif
 
 	// Start main
 	main();

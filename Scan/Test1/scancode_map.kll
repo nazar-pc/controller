@@ -1,0 +1,26 @@
+Name = "Test1";
+Version = 0.1;
+Author = "*";
+KLL = 0.5;
+
+# Modified Date
+Date = *;
+
+ScanCodeStrobeList => ScanCodeStrobeList_define;
+ScanCodeStrobeList = "
+	gpio(B,16)
+";
+
+ScanCodeSenseList => ScanCodeSenseList_define;
+ScanCodeSenseList = "
+	gpio(B,17)
+";
+
+ScanCodeMatrixType => ScanCodeMatrixType_define;
+ScanCodeMatrixType = "GPIO_Config_Pulldown";
+
+# Invert Matrix
+# Needed to account for pull-up resistor values
+#ScanCodeMatrixInvert = 1;
+
+S0x1 : U"a";

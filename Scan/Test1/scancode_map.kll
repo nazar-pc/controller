@@ -8,12 +8,14 @@ Date = *;
 
 ScanCodeStrobeList => ScanCodeStrobeList_define;
 ScanCodeStrobeList = "
-	gpio(B,16)
+    gpio(B,16),
+	gpio(D,0)
 ";
 
 ScanCodeSenseList => ScanCodeSenseList_define;
 ScanCodeSenseList = "
-	gpio(B,17)
+    gpio(B,17),
+	gpio(A,12)
 ";
 
 ScanCodeMatrixType => ScanCodeMatrixType_define;
@@ -24,3 +26,6 @@ ScanCodeMatrixType = "GPIO_Config_Pulldown";
 #ScanCodeMatrixInvert = 1;
 
 S0x1 : U"a";
+S0x2 : U"b";
+S0x3 : U"c";
+S0x4 : U"d";

@@ -1107,23 +1107,23 @@ void Macro_periodic()
 		break;
 	}
 
-	// Check macroTriggerEventBufferSize to make sure no overflow
-	if ( macroTriggerEventBufferSize >= MaxScanCode_KLL )
-	{
-		// No scancodes defined
-		if ( MaxScanCode_KLL == 0 )
-		{
-			warn_print("No scancodes defined! Check your BaseMap!");
-		}
-		// Bug!
-		else
-		{
-			erro_msg("Macro Trigger Event Overflow! Serious Bug! ");
-			printInt16( macroTriggerEventBufferSize );
-			print( NL );
-			macroTriggerEventBufferSize = 0;
-		}
-	}
+//	// Check macroTriggerEventBufferSize to make sure no overflow
+//	if ( macroTriggerEventBufferSize >= MaxScanCode_KLL )
+//	{
+//		// No scancodes defined
+//		if ( MaxScanCode_KLL == 0 )
+//		{
+//			warn_print("No scancodes defined! Check your BaseMap!");
+//		}
+//		// Bug!
+//		else
+//		{
+//			erro_msg("Macro Trigger Event Overflow! Serious Bug! ");
+//			printInt16( macroTriggerEventBufferSize );
+//			print( NL );
+//			macroTriggerEventBufferSize = 0;
+//		}
+//	}
 
 	// If the pause flag is set, only process if the step counter is non-zero
 	if ( macroPauseMode )
